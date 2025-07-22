@@ -1,0 +1,30 @@
+{
+  "dataOfPost": {
+    "post": [
+      {
+        "id": "3efef69c-5ede-4629-b55e-0b8d8557b512",
+        "title": "urqwsdf",
+        "description": "1342334",
+        "message": "asdsdfsaf"
+      },
+      {
+        "id": "1cc201f8-3266-491d-9cb7-b1488046c67f",
+        "title": "asdasd",
+        "description": "asd",
+        "message": "asdasdad"
+      },
+      {
+        "id": "3ba538a5-ce3d-42c0-9e1a-eca4c8d57ab0",
+        "title": "asdad",
+        "description": "asdasd",
+        "message": "adsasd"
+      },
+      {
+        "id": "27ed738b-5cde-4b60-a110-d164974e6694",
+        "title": "asdasd",
+        "description": "asdasd",
+        "message": "12314343"
+      }
+    ]
+  }
+}
