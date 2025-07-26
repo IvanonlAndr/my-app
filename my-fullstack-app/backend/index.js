@@ -1,22 +1,16 @@
 const express = require("express");
 const cors = require("cors");
+const { data, dataOfPost, loadData } = require("./dataStore");
 const app = express();
 const fs = require("fs").promises;
 const path = require("path");
 const nodemailer = require("nodemailer");
 const { ApolloServer, gql } = require("apollo-server-express");
 const { v4: uuidv4 } = require("uuid");
-
+const sqlite = require("sqlite");
+const sqlite3 = require("sqlite3");
 
 app.use(cors());
-
-let data = {
-  emails: [],
-};
-
-let dataOfPost = {
-  post: [],
-};
 
 const typeDefs = gql`
   type Query {
@@ -29,7 +23,7 @@ const typeDefs = gql`
 
   type SendEmailResponse {
     message: String!
-    emails: [String!]!
+    email: String!
   }
 `;
 
@@ -57,155 +51,133 @@ const typeDefsPosts = gql`
   }
 `;
 
-const resolvers = {
-  Query: {
-    emails: async () => {
-      // Try to read emails.json file to get persisted emails on server start
-      try {
-        const fileData = await fs.readFile(
-          path.join(__dirname, "emails.json"),
-          "utf8"
-        );
-        const parsed = JSON.parse(fileData);
-        data.emails = parsed.emails || [];
-      } catch {
-        // ignore if file does not exist yet
-      }
-      return data.emails;
-    },
+async function startApolloServer() {
+  // 1. Open database
+  const db = await sqlite.open({
+    filename: "mydatabase.sqlite",
+    driver: sqlite3.Database,
+  });
 
-    getPost: async (id) => {
-      try {
-        const fileData = await fs.readFile(
-          path.join(__dirname, "posts.json"),
-          "utf8"
-        );
-        const parsed = JSON.parse(fileData);
-        const posts = parsed.posts || [];
+  // 2. Create table if not exists
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS emails (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT UNIQUE NOT NULL
+    )
+  `);
 
-        const post = posts.find((p) => p.id === id);
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS posts (
+      id TEXT UNIQUE PRIMARY KEY,
+      title TEXT,
+      description TEXT,
+      message TEXT
+  )
+  `);
+
+  // 3. Attach db to resolvers (closure or context)
+  const resolvers = {
+    Query: {
+      emails: async () => {
+        const rows = await db.all(`SELECT email FROM emails`);
+        return rows.map((row) => row.email);
+      },
+
+      getPost: async (id) => {
+        const post = await db.get(`SELECT * FROM posts WHERE id = ?`, [id]);
 
         if (!post) {
           throw new Error("Post not found");
         }
 
-        return post;
-      } catch (err) {
-        console.error("Error reading posts:", err);
-        throw new Error("Failed to get post");
-      }
+        return {
+          id: post.id,
+          title: post.title,
+          description: post.description,
+          message: post.message,
+        };
+      },
+
+      getAllPosts: async () => {
+        const posts = await db.all(`SELECT * FROM posts`);
+        return posts.map((post) => ({
+          id: post.id,
+          title: post.title,
+          description: post.description,
+          message: post.message,
+        }));
+      },
     },
 
-    getAllPosts: async () => {
-      try {
-        const fileData = await fs.readFile(
-          path.join(__dirname, "posts.json"),
-          "utf8"
+    Mutation: {
+      sendEmail: async (_, { email }) => {
+        if (!email.trim()) {
+          throw new Error("Email must not be empty");
+        }
+
+        try {
+          await db.run(`INSERT OR IGNORE INTO emails (email) VALUES (?)`, [
+            email,
+          ]);
+
+          const transporter = nodemailer.createTransport({
+            service: "gmail",
+            auth: {
+              user: process.env.EMAIL_USER,
+              pass: process.env.EMAIL_PASS,
+            },
+          });
+
+          await transporter.sendMail({
+            from: '"Ivan Komissarov" <komivan06@gmail.com>',
+            to: email,
+            subject: "Hello ✔",
+            text: "Hello world?",
+            html: `<b>Hello world?</b><a href="http://bit.ly/44IHQsY"><button>asd</button></a>`,
+          });
+
+          const rows = await db.all(`SELECT email FROM emails`);
+          const allEmails = rows.map((row) => row.email);
+
+          return {
+            message: "Email Sent!",
+            email,
+          };
+        } catch (error) {
+          console.error("Error sending email:", error);
+          throw new Error("Email send failed");
+        }
+      },
+
+      createPost: async (_, { values }) => {
+        const { title, description, message } = values;
+        const id = uuidv4();
+
+        // Check for existing post
+        const exists = await db.get(`SELECT * FROM posts WHERE id = ?`, [id]);
+        if (exists) {
+          throw new Error("Post with this ID already exists");
+        }
+
+        // Insert into DB
+        await db.run(
+          `INSERT INTO posts (id, title, description, message) VALUES (?, ?, ?, ?)`,
+          [id, title, description, message]
         );
-        const parsed = JSON.parse(fileData);
-        const posts = parsed.dataOfPost?.post || [];
 
-        return posts;
-      } catch (err) {
-        console.error("Error reading posts:", err);
-        throw new Error("Failed to get post");
-      }
-    },
-  },
-
-  Mutation: {
-    sendEmail: async (_, { email }) => {
-      if (!email.trim()) {
-        throw new Error("Email must not be empty");
-      }
-      if (!data.emails.includes(email)) {
-        data.emails.push(email);
-      }
-
-      try {
-        await transporter.sendMail({
-          from: '"Ivan Komissarov" <komivan06@gmail.com>',
-          to: email,
-          subject: "Hello ✔",
-          text: "Hello world?", // plain text body
-          html: `<b>Hello world?</b><a href="http://bit.ly/44IHQsY"><button>asd</button></a>`,
-        });
-
-        await fs.writeFile(
-          path.join(__dirname, "emails.json"),
-          JSON.stringify(data, null, 2) + "\n"
-        );
-      } catch (error) {
-        console.error("Error sending email:", error);
-        throw new Error("Email send failed");
-      }
-
-      return {
-        message: "Email Sent!",
-        emails: data.emails,
-      };
-    },
-
-    createPost: async (_, { values }) => {
-      const { title, description, message } = values;
-      const id = uuidv4();
-      const exists = dataOfPost.post.some((post) => post.id === id);
-
-      let newPost;
-
-      if (!exists) {
-        newPost = {
+        // Return the newly created post
+        return {
           id,
           title,
           description,
           message,
         };
-
-        dataOfPost.post.push(newPost);
-      }
-
-      const filePath = path.join(__dirname, "posts.json");
-      const fileData = await fs.readFile(filePath, "utf8");
-      let parsed = { post: [] };
-
-      try {
-        const fileData = await fs.readFile(filePath, "utf8");
-
-        if (fileData.trim()) {
-          parsed = JSON.parse(fileData);
-        }
-      } catch (err) {
-        console.error("Error reading or parsing posts.json:", err);
-      }
-      // const posts = parsed.posts || [];
-
-      try {
-        await fs.writeFile(
-          filePath,
-          JSON.stringify({ dataOfPost }, null, 2) + "\n"
-        );
-      } catch (error) {
-        console.error("Error sending email:", error);
-        throw new Error("Email send failed");
-      }
-
-      return newPost;
+      },
     },
-  },
-};
+  };
 
-// Create a test account or replace with real credentials.
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: "komivan06@gmail.com",
-    pass: "gnae knsk pizm avzr",
-  },
-});
-
-async function startApolloServer() {
   const server = new ApolloServer({
-    typeDefs: [typeDefs, typeDefsPosts], // merge schemas
+    typeDefs: [typeDefs, typeDefsPosts],
     resolvers,
   });
 
@@ -221,3 +193,4 @@ async function startApolloServer() {
 }
 
 startApolloServer();
+
