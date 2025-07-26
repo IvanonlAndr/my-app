@@ -1,6 +1,5 @@
 const express = require("express");
 const cors = require("cors");
-const { data, dataOfPost, loadData } = require("./dataStore");
 const app = express();
 const fs = require("fs").promises;
 const path = require("path");
