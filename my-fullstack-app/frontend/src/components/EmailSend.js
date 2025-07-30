@@ -5,7 +5,7 @@ import { TextField } from "@mui/material";
 
 const GET_EMAILS = gql`
   query GetEmails {
-    emails
+    getEmails
   }
 `;
 
@@ -18,10 +18,59 @@ const SEND_EMAIL = gql`
   }
 `;
 
+const GET_USERS = gql`
+  query GetUsers {
+    getUsers
+  }
+`;
+
+const CREATE_USER = gql`
+  mutation CreateUser($values: UserValues!) {
+    createUser(values: $values) {
+      id
+      email
+      username
+      createdAt
+    }
+  }
+`;
 
 function EmailSend() {
   const [email, setEmail] = useState("");
-  const { loading: loadingEmails, data } = useQuery(GET_EMAILS);
+  const [password, setPassword] = useState("");
+  const [username, setUsername] = useState("");
+  const [createUser, { loading: creatingUser }] = useMutation(CREATE_USER, {
+    onCompleted: (data) => {
+      setEmail("");
+      setPassword("");
+      setUsername("");
+      alert("User created successfully: " + data.createUser.email);
+    },
+    onError: (error) => {
+      alert("Failed to create user: " + error.message);
+    },
+
+    update(cache, { data: { createUser } }) {
+      cache.modify({
+        fields: {
+          getUsers(existingUsers = []) {
+            const newUserRef = cache.writeFragment({
+              data: createUser,
+              fragment: gql`
+                fragment NewUser on User {
+                  id
+                  email
+                  username
+                  createdAt
+                }
+              `,
+            });
+            return [...existingUsers, newUserRef];
+          },
+        },
+      });
+    }
+  });
 
   const [sendEmail, { loading: sendingEmail }] = useMutation(SEND_EMAIL, {
     onCompleted: (data) => {
@@ -32,24 +81,28 @@ function EmailSend() {
     },
     // Update Apollo cache with new emails list from mutation result
     update(cache, { data: { sendEmail } }) {
-      cache.writeQuery({
-        query: GET_EMAILS,
-        data: { emails: sendEmail.emails },
+      cache.modify({
+        fields: {
+          getEmails(existingEmails = []) {
+            return [...existingEmails, sendEmail.email];
+          },
+        },
       });
     },
   });
 
-    const handleClick = () => {
+  const handleClick = () => {
     if (email.trim() === "") return alert("Please enter an email");
+    createUser({ variables: { values: { email, password, username } } });
     sendEmail({ variables: { email } });
   };
-
-  const emails = data?.emails || [];
 
   return (
     <FormStyled>
       <TextField
         label="Email"
+        name="email"
+        autoComplete="email"
         variant="outlined"
         margin="normal"
         fullWidth
@@ -59,21 +112,37 @@ function EmailSend() {
         onChange={(e) => setEmail(e.target.value)}
       />
 
-      <ButtonStyled variant="contained" onClick={handleClick} disabled={sendingEmail}>
+      <TextField
+        label="Password" 
+        name="password"
+        autoComplete="new-password"
+        variant="outlined"
+        margin="normal"
+        required
+        type="password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+      />
+
+      <TextField
+        label="Username" 
+        name="username"
+        autoComplete="username"
+        variant="outlined"
+        margin="normal"
+        required
+        type="text"
+        value={username}
+        onChange={(e) => setUsername(e.target.value)}
+      />
+
+      <ButtonStyled
+        variant="contained"
+        onClick={handleClick}
+        disabled={sendingEmail}
+      >
         {sendingEmail ? "Sending..." : "Send"}
       </ButtonStyled>
-
-      {loadingEmails ? (
-        <p>Loading emails...</p>
-      ) : emails.length > 0 ? (
-        <ul>
-          {emails.map((email, i) => (
-            <li key={i}>{email}</li>
-          ))}
-        </ul>
-      ) : (
-        <p>No Emails</p>
-      )}
     </FormStyled>
   );
 }

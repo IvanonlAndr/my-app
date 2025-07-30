@@ -1,3 +1,4 @@
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const app = express();
@@ -8,12 +9,13 @@ const { ApolloServer, gql } = require("apollo-server-express");
 const { v4: uuidv4 } = require("uuid");
 const sqlite = require("sqlite");
 const sqlite3 = require("sqlite3");
+const { get } = require("http");
 
 app.use(cors());
 
 const typeDefs = gql`
   type Query {
-    emails: [String!]!
+    getEmails: [String!]!
   }
 
   type Mutation {
@@ -22,7 +24,7 @@ const typeDefs = gql`
 
   type SendEmailResponse {
     message: String!
-    email: String!
+    emails: [String!]!
   }
 `;
 
@@ -50,6 +52,31 @@ const typeDefsPosts = gql`
   }
 `;
 
+const typeDefsUsers = gql`
+  type Query {
+    getUsers: [User!]!
+    getUserByID(id: ID!): User
+  }
+
+  type Mutation {
+    createUser(values: UserValues): User!
+  }
+
+  type User {
+    id: ID!
+    email: String!
+    password: String!
+    username: String!
+    createdAt: String!
+  }
+
+  input UserValues {
+    email: String!
+    password: String!
+    username: String!
+  }
+`;
+
 async function startApolloServer() {
   // 1. Open database
   const db = await sqlite.open({
@@ -59,11 +86,14 @@ async function startApolloServer() {
 
   // 2. Create table if not exists
   await db.run(`
-    CREATE TABLE IF NOT EXISTS emails (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      email TEXT UNIQUE NOT NULL
-    )
-  `);
+  CREATE TABLE users (
+    id TEXT PRIMARY KEY,
+    email TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL,
+    username TEXT,
+    createdAt TEXT DEFAULT CURRENT_TIMESTAMP
+  )
+`);
 
   await db.run(`
     CREATE TABLE IF NOT EXISTS posts (
@@ -77,8 +107,8 @@ async function startApolloServer() {
   // 3. Attach db to resolvers (closure or context)
   const resolvers = {
     Query: {
-      emails: async () => {
-        const rows = await db.all(`SELECT email FROM emails`);
+      getEmails: async () => {
+        const rows = await db.all(`SELECT email FROM users`);
         return rows.map((row) => row.email);
       },
 
@@ -106,6 +136,16 @@ async function startApolloServer() {
           message: post.message,
         }));
       },
+
+      getUsers: async () => {
+        const rows = await db.all(`SELECT * FROM users`);
+        return rows.map((row) => ({
+          id: row.id,
+          email: row.email,
+          username: row.username,
+          createdAt: row.createdAt,
+        }));
+      },
     },
 
     Mutation: {
@@ -115,7 +155,7 @@ async function startApolloServer() {
         }
 
         try {
-          await db.run(`INSERT OR IGNORE INTO emails (email) VALUES (?)`, [
+          await db.run(`INSERT OR IGNORE INTO users (email) VALUES (?)`, [
             email,
           ]);
 
@@ -135,12 +175,12 @@ async function startApolloServer() {
             html: `<b>Hello world?</b><a href="http://bit.ly/44IHQsY"><button>asd</button></a>`,
           });
 
-          const rows = await db.all(`SELECT email FROM emails`);
+          const rows = await db.all(`SELECT email FROM users`);
           const allEmails = rows.map((row) => row.email);
 
           return {
             message: "Email Sent!",
-            email,
+            emails: allEmails,
           };
         } catch (error) {
           console.error("Error sending email:", error);
@@ -172,11 +212,39 @@ async function startApolloServer() {
           message,
         };
       },
+
+      createUser: async (_, { values }) => {
+        const { email, password, username } = values;
+        const createdAt = new Date().toISOString();
+        const id = uuidv4();
+        if (!email || !password) {
+          throw new Error("Email and password are required");
+        }
+        const exists = await db.get(`SELECT * FROM users WHERE email = ?`, [
+          email,
+        ]);
+        if (exists) {
+          throw new Error("User with this email already exists");
+        }
+        const columns = await db.all(`PRAGMA table_info(users)`);
+        console.log(columns);
+        await db.run(
+          `INSERT INTO users (id, email, password, username, createdAt) VALUES (?, ?, ?, ?, ?)`,
+          [id, email, password, username, createdAt]
+        );
+        return {
+          id,
+          email,
+          password,
+          username,
+          createdAt,
+        };
+      },
     },
   };
 
   const server = new ApolloServer({
-    typeDefs: [typeDefs, typeDefsPosts],
+    typeDefs: [typeDefs, typeDefsPosts, typeDefsUsers],
     resolvers,
   });
 
