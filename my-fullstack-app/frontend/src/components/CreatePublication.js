@@ -15,17 +15,6 @@ const CREATE_PUBLICATION = gql`
   }
 `;
 
-const GET_PUBLICATIONS = gql`
-  query GetAllPosts {
-    getAllPosts {
-      id
-      title
-      description
-      message
-    }
-  }
-`;
-
 function CreatePublication() {
   const navigate = useNavigate();
 

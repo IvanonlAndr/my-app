@@ -1,7 +1,7 @@
 import {TextField, Box, Button} from '@mui/material';
 import {styled} from '@mui/material/styles';
 
-export const FormStyled = styled(Box)`
+export const FormStyled = styled("form")`
   display: flex;
   flex-direction: column;
   gap: 16px;

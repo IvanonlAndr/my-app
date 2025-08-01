@@ -10,6 +10,7 @@ const { v4: uuidv4 } = require("uuid");
 const sqlite = require("sqlite");
 const sqlite3 = require("sqlite3");
 const { get } = require("http");
+const jwt = require("jsonwebtoken");
 
 app.use(cors());
 
@@ -56,6 +57,7 @@ const typeDefsUsers = gql`
   type Query {
     getUsers: [User!]!
     getUserByID(id: ID!): User
+    getUserByEmail(email: String!): User
   }
 
   type Mutation {
@@ -65,7 +67,6 @@ const typeDefsUsers = gql`
   type User {
     id: ID!
     email: String!
-    password: String!
     username: String!
     createdAt: String!
   }
@@ -74,6 +75,28 @@ const typeDefsUsers = gql`
     email: String!
     password: String!
     username: String!
+  }
+`;
+
+const typeDefsLogin = gql`
+  type Mutation {
+    login(email: String!, password: String!): AuthPayload!
+  }
+
+  type AuthPayload {
+    token: String!
+    user: User!
+  }
+
+  type User {
+    id: ID!
+    email: String!
+    username: String!
+    createdAt: String!
+  }
+
+  type Query {
+    getUsers: [User!]!
   }
 `;
 
@@ -86,7 +109,7 @@ async function startApolloServer() {
 
   // 2. Create table if not exists
   await db.run(`
-  CREATE TABLE users (
+  CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     email TEXT UNIQUE NOT NULL,
     password TEXT NOT NULL,
@@ -145,6 +168,36 @@ async function startApolloServer() {
           username: row.username,
           createdAt: row.createdAt,
         }));
+      },
+
+      getUserByID: async (_, { id }) => {
+        const user = await db.get(`SELECT * FROM users WHERE id = ?`, [id]);
+        if (!user) {
+          throw new Error("User not found");
+        }
+        return {
+          id: user.id,
+          email: user.email,
+          username: user.username,
+          createdAt: user.createdAt,
+        };
+
+
+      },
+
+      getUserByEmail: async (_, { email }) => {
+        const user = await db.get(`SELECT * FROM users WHERE email = ?`, [
+          email,
+        ]);
+        if (!user) {
+          throw new Error("User not found");
+        }
+        return {
+          id: user.id,
+          email: user.email,
+          username: user.username,
+          createdAt: user.createdAt,
+        };
       },
     },
 
@@ -240,12 +293,48 @@ async function startApolloServer() {
           createdAt,
         };
       },
+
+      login: async (_, { email, password }) => {
+        const user = await db.get(`SELECT * FROM users WHERE email = ?`, [
+          email,
+        ]);
+        if (!user || user.password !== password) {
+          throw new Error("Invalid credentials");
+        }
+
+        const token = jwt.sign(
+          {
+            userId: user.id,
+          },
+          process.env.JWT_SECRET,
+          { expiresIn: "1h" }
+        );
+
+        return {
+          token,
+          user,
+        };
+      },
     },
   };
 
   const server = new ApolloServer({
-    typeDefs: [typeDefs, typeDefsPosts, typeDefsUsers],
+    typeDefs: [typeDefs, typeDefsPosts, typeDefsUsers, typeDefsLogin],
     resolvers,
+    context: ({ req }) => {
+      const authHeader = req.headers.authorization || "";
+      const token = authHeader.replace("Bearer ", "");
+
+      if (!token) return {}; // No token, unauthenticated context
+
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        return { user: decoded }; // attach user info to context
+      } catch (err) {
+        console.log("JWT verification error:", err.message);
+        return {}; // optionally throw or handle unauthorized here
+      }
+    },
   });
 
   await server.start();

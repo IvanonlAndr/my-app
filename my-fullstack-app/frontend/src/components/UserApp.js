@@ -1,13 +1,7 @@
 import React, { useState } from "react";
-import { gql, useQuery, useMutation } from "@apollo/client";
+import { gql, useMutation } from "@apollo/client";
 import { FormStyled, ButtonStyled } from "../App.tsx";
 import { TextField } from "@mui/material";
-
-const GET_EMAILS = gql`
-  query GetEmails {
-    getEmails
-  }
-`;
 
 const SEND_EMAIL = gql`
   mutation SendEmail($email: String!) {
@@ -15,12 +9,6 @@ const SEND_EMAIL = gql`
       message
       emails
     }
-  }
-`;
-
-const GET_USERS = gql`
-  query GetUsers {
-    getUsers
   }
 `;
 
@@ -35,11 +23,11 @@ const CREATE_USER = gql`
   }
 `;
 
-function EmailSend() {
+function UserApp() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [username, setUsername] = useState("");
-  const [createUser, { loading: creatingUser }] = useMutation(CREATE_USER, {
+  const [createUser] = useMutation(CREATE_USER, {
     onCompleted: (data) => {
       setEmail("");
       setPassword("");
@@ -147,4 +135,4 @@ function EmailSend() {
   );
 }
 
-export default EmailSend;
+export default UserApp;

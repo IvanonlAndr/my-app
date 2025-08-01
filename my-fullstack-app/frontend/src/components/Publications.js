@@ -23,8 +23,6 @@ function Publications() {
 
   return (
     <>
-      <Link to="/">home</Link>
-      <Link to="/publications">publications</Link>
       <Button>
         <Link to="/create-publication">Publish</Link>
       </Button>
